@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Presensi by Finger</title>
+  <style>
+    :root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
+    *{box-sizing:border-box}body{margin:0}header{background:#173b70;color:white;padding:22px 18px}
+    header h1{margin:0 0 6px;font-size:22px}header p{margin:0;color:#dbeafe;font-size:13px}
+    main{max-width:900px;margin:22px auto;padding:0 14px}.panel{background:white;border:1px solid #e3e9f2;border-radius:14px;padding:18px;margin-bottom:16px;box-shadow:0 3px 12px #13294b0b}
+    h2{font-size:18px;margin:0 0 14px}.muted{color:#667085;font-size:13px;line-height:1.5}
+    label{display:block;font-size:13px;font-weight:700;margin:12px 0 6px}
+    input,select,button{font:inherit;width:100%;padding:11px 12px;border:1px solid #ccd5e2;border-radius:9px;background:white}
+    button{background:#1e5aa6;color:white;border:0;font-weight:700;cursor:pointer;margin-top:12px}
+    button.secondary{background:#eaf1fb;color:#174477}button.danger{background:#9b2634}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+    .hidden{display:none!important}.status{padding:10px;border-radius:8px;background:#eef4ff;color:#174477;font-size:13px;margin-top:10px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.tabs button{width:auto;margin:0}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e7ebf1}
+    .tablewrap{overflow:auto}.stat{font-size:26px;font-weight:700;color:#174477}.small{font-size:12px;color:#667085}
+    footer{text-align:center;color:#778195;font-size:12px;padding:18px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Presensi by Finger</h1>
+  <p>Sistem presensi digital sekolah</p>
+</header>
+<main>
+  <section id="loginPanel" class="panel">
+    <h2>Login Admin</h2>
+    <p class="muted">Masuk menggunakan akun admin Firebase yang sudah dibuat.</p>
+    <label for="email">Email admin</label><input id="email" type="email" autocomplete="username" placeholder="admin@sekolah.sch.id">
+    <label for="password">Kata sandi</label><input id="password" type="password" autocomplete="current-password" placeholder="Kata sandi">
+    <button id="loginBtn">Masuk</button>
+    <div id="loginStatus" class="status">Menghubungkan ke Firebase...</div>
+  </section>
+
+  <section id="appPanel" class="hidden">
+    <div class="panel">
+      <div class="grid">
+        <div><div class="small">Total siswa</div><div id="totalStudents" class="stat">0</div></div>
+        <div><div class="small">Presensi hari ini</div><div id="todayCount" class="stat">0</div></div>
+      </div>
+      <p id="welcome" class="muted"></p>
+      <button id="logoutBtn" class="secondary">Keluar</button>
+    </div>
+
+    <div class="panel">
+      <div class="tabs">
+        <button class="secondary" data-tab="studentTab">Data Siswa</button>
+        <button class="secondary" data-tab="attendanceTab">Catat Presensi</button>
+        <button class="secondary" data-tab="historyTab">Riwayat</button>
+      </div>
+
+      <div id="studentTab">
+        <h2>Tambah Siswa</h2>
+        <div class="grid">
+          <div><label for="nis">NIS</label><input id="nis" placeholder="Contoh: 1001"></div>
+          <div><label for="studentName">Nama siswa</label><input id="studentName" placeholder="Nama lengkap"></div>
+          <div><label for="className">Kelas</label><input id="className" placeholder="Contoh: VII A"></div>
+        </div>
+        <button id="addStudentBtn">Simpan siswa</button>
+        <div id="studentStatus" class="status">Data siswa tersimpan di Firestore.</div>
+        <h2 style="margin-top:22px">Daftar Siswa</h2>
+        <div class="tablewrap"><table><thead><tr><th>NIS</th><th>Nama</th><th>Kelas</th></tr></thead><tbody id="studentsBody"></tbody></table></div>
+      </div>
+
+      <div id="attendanceTab" class="hidden">
+        <h2>Catat Presensi</h2>
+        <p class="muted">Ini adalah pencatatan manual oleh admin untuk pengujian. Pemindai sidik jari eksternal belum terhubung.</p>
+        <label for="studentSelect">Pilih siswa</label><select id="studentSelect"><option value="">Pilih siswa</option></select>
+        <label for="attendanceType">Jenis presensi</label>
+        <select id="attendanceType"><option value="masuk">Masuk</option><option value="pulang">Pulang</option></select>
+        <button id="saveAttendanceBtn">Simpan presensi</button>
+        <div id="attendanceStatus" class="status">Pastikan siswa sudah terdaftar.</div>
+      </div>
+
+      <div id="historyTab" class="hidden">
+        <h2>Riwayat Presensi</h2>
+        <button id="csvBtn" class="secondary">Unduh CSV</button>
+        <div class="tablewrap"><table><thead><tr><th>Tanggal</th><th>Waktu</th><th>NIS</th><th>Nama</th><th>Kelas</th><th>Jenis</th></tr></thead><tbody id="historyBody"></tbody></table></div>
+      </div>
+    </div>
+  </section>
+  <footer>Presensi by Finger · Versi uji coba</footer>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, collection, getDocs, setDoc, addDoc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAe3qO08d6q0H3L3oXbSIPvvy2sRnMPYgQ",
+  authDomain: "presensi-by-finger-aaab8.firebaseapp.com",
+  projectId: "presensi-by-finger-aaab8",
+  storageBucket: "presensi-by-finger-aaab8.firebasestorage.app",
+  messagingSenderId: "606686654620",
+  appId: "1:606686654620:web:0324408fa724a17e28bd59",
+  measurementId: "G-B94X8CHKNW"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const $ = id => document.getElementById(id);
+let students = [];
+let records = [];
+
+function message(id, text){ $(id).textContent = text; }
+function dateParts(){
+  const now = new Date();
+  return {tanggal: now.toLocaleDateString('en-CA'), waktu: now.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})};
+}
+function escapeHtml(value=''){
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function verifyAdmin(user){
+  const snap = await getDoc(doc(db,'users',user.uid));
+  if(!snap.exists() || snap.data().role !== 'admin' || snap.data().active !== true){
+    await signOut(auth);
+    throw new Error('Akun ini belum memiliki akses admin. Periksa dokumen users/{UID} di Firestore.');
+  }
+  return snap.data();
+}
+$('loginBtn').addEventListener('click', async()=>{
+  message('loginStatus','Memeriksa akun...');
+  $('loginBtn').disabled = true;
+  try{
+    const cred = await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value);
+    await verifyAdmin(cred.user);
+    message('loginStatus','Login berhasil.');
+  }catch(e){message('loginStatus','Gagal login: '+e.message);}
+  finally{$('loginBtn').disabled=false;}
+});
+$('logoutBtn').addEventListener('click',()=>signOut(auth));
+onAuthStateChanged(auth, async user=>{
+  if(!user){$('loginPanel').classList.remove('hidden');$('appPanel').classList.add('hidden');return;}
+  try{
+    await verifyAdmin(user);
+    $('loginPanel').classList.add('hidden');$('appPanel').classList.remove('hidden');
+    $('welcome').textContent='Login sebagai '+user.email;
+    await refreshData();
+  }catch(e){$('loginPanel').classList.remove('hidden');$('appPanel').classList.add('hidden');message('loginStatus',e.message);}
+});
+async function refreshData(){
+  const s = await getDocs(collection(db,'siswa'));
+  students = s.docs.map(d=>({nis:d.id,...d.data()})).sort((a,b)=>a.nis.localeCompare(b.nis));
+  $('studentsBody').innerHTML = students.map(x=>`<tr><td>${escapeHtml(x.nis)}</td><td>${escapeHtml(x.nama)}</td><td>${escapeHtml(x.kelas)}</td></tr>`).join('');
+  $('studentSelect').innerHTML = '<option value="">Pilih siswa</option>'+students.map(x=>`<option value="${escapeHtml(x.nis)}">${escapeHtml(x.nis)} — ${escapeHtml(x.nama)}</option>`).join('');
+  const q = query(collection(db,'presensi'),orderBy('tanggal','desc'),limit(200));
+  const r = await getDocs(q);
+  records = r.docs.map(d=>({id:d.id,...d.data()}));
+  $('historyBody').innerHTML = records.map(x=>`<tr><td>${escapeHtml(x.tanggal)}</td><td>${escapeHtml(x.waktu)}</td><td>${escapeHtml(x.nis)}</td><td>${escapeHtml(x.nama)}</td><td>${escapeHtml(x.kelas)}</td><td>${escapeHtml(x.jenis)}</td></tr>`).join('');
+  $('totalStudents').textContent=students.length;
+  const today=dateParts().tanggal;
+  $('todayCount').textContent=records.filter(x=>x.tanggal===today).length;
+}
+$('addStudentBtn').addEventListener('click',async()=>{
+  const nis=$('nis').value.trim(), nama=$('studentName').value.trim(), kelas=$('className').value.trim();
+  if(!nis||!nama||!kelas){message('studentStatus','Lengkapi NIS, nama, dan kelas.');return;}
+  try{
+    await setDoc(doc(db,'siswa',nis),{nama,kelas,createdAt:new Date().toISOString()});
+    $('nis').value='';$('studentName').value='';$('className').value='';
+    message('studentStatus','Siswa berhasil disimpan.');await refreshData();
+  }catch(e){message('studentStatus','Gagal menyimpan: '+e.message);}
+});
+$('saveAttendanceBtn').addEventListener('click',async()=>{
+  const nis=$('studentSelect').value, jenis=$('attendanceType').value;
+  const student=students.find(x=>x.nis===nis);
+  if(!student){message('attendanceStatus','Pilih siswa terlebih dahulu.');return;}
+  const {tanggal,waktu}=dateParts();
+  try{
+    await addDoc(collection(db,'presensi'),{nis,nama:student.nama,kelas:student.kelas,jenis,tanggal,waktu,terminal:'admin-web',createdAt:new Date().toISOString()});
+    message('attendanceStatus','Presensi berhasil disimpan.');await refreshData();
+  }catch(e){message('attendanceStatus','Gagal menyimpan: '+e.message);}
+});
+document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{
+  ['studentTab','attendanceTab','historyTab'].forEach(id=>$(id).classList.toggle('hidden',id!==btn.dataset.tab));
+}));
+$('csvBtn').addEventListener('click',()=>{
+  const rows=[['Tanggal','Waktu','NIS','Nama','Kelas','Jenis'],...records.map(x=>[x.tanggal,x.waktu,x.nis,x.nama,x.kelas,x.jenis])];
+  const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='riwayat-presensi.csv';a.click();URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
